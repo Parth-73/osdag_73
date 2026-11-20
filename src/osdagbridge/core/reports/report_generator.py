@@ -103,12 +103,12 @@
 #                                                          else → CustomMessageBox("Report Saved")
 #==============================================================================
 
+import hashlib
 import os, shutil, logging, datetime, tempfile, subprocess
 from dataclasses import dataclass, field
 from typing import Optional, List, Literal
 
 from osdagbridge.core.utils.common import (
-    KEY_DESIGN_MODE,
     KEY_SPAN,
     KEY_TL_BRIDGE_TEMP_MAX,
     KEY_TL_BRIDGE_TEMP_MIN,
@@ -147,134 +147,9 @@ logger = logging.getLogger(__name__)
 # PREAMBLE
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def preamble(project_name, job_number, report_date, report_version='Rev 0'):
-    pn = _tex(project_name)
-    jn = _tex(job_number)
-    rd = _tex(report_date)
-    rv = _tex(report_version)
-    return r"""
-\documentclass[12pt,a4paper]{report}
+from .charts import utilization_charts, material_charts
+from .styles import preamble
 
-% Packages
-\usepackage[a4paper, margin=1in]{geometry}
-\usepackage{graphicx}
-\usepackage{amsmath}
-\usepackage{amssymb}
-\usepackage{booktabs}
-\usepackage{array}
-\usepackage{tabularx}
-\usepackage{float}
-\usepackage{fancyhdr}
-\usepackage[hidelinks]{hyperref}
-\usepackage{xcolor}
-\usepackage{setspace}
-\usepackage{enumitem}
-\usepackage{caption}
-
-\captionsetup{
-    labelfont=bf,
-    justification=raggedright,
-    singlelinecheck=false,
-    format=plain
-}
-\usepackage{subcaption}
-\usepackage{multirow}
-\usepackage{colortbl}
-\usepackage{longtable}
-\setlength{\LTleft}{\fill}
-\setlength{\LTright}{\fill}
-\usepackage{titlesec}
-\usepackage{titletoc}
-\usepackage{lastpage}
-\usepackage{makecell}
-\usepackage{etoolbox}
-\usepackage{needspace}
-
-\numberwithin{table}{chapter}
-\numberwithin{figure}{chapter}
-% Table layout and spacing: consistent padding, row height, and longtable pre/post skips
-\setlength{\tabcolsep}{6pt}
-\renewcommand{\arraystretch}{1.12}
-\setlength{\LTpre}{0pt}
-\setlength{\LTpost}{6pt}
-% Table rules (outline thickness) and small extra row height for clarity
-\setlength{\arrayrulewidth}{0.5pt}
-\setlength{\extrarowheight}{0.6pt}
-
-% Prevent tables from overflowing past the page bottom:
-% if fewer than 5 baseline-skips remain, break to the next page first.
-\BeforeBeginEnvironment{table}{\needspace{5\baselineskip}}
-\BeforeBeginEnvironment{longtable}{\needspace{5\baselineskip}}
-
-\definecolor{osdagGreen}{HTML}{91B014}
-
-\fancypagestyle{main}{
-  \fancyhf{}
-  \fancyhead[L]{""" + pn + r""" $|$ """ + jn + r"""}
-  \fancyhead[R]{""" + rd + r""" $|$ """ + rv + r"""}
-  \fancyfoot[L]{Osdag $|$ FOSSEE $|$ Indian Institute of Technology Bombay}
-  \fancyfoot[R]{Page \thepage\ of \pageref{LastPage}}
-  \renewcommand{\headrule}{\color{osdagGreen}\hrule width\headwidth height 1pt \vspace{2pt}}
-  \renewcommand{\footrule}{%
-    \ifbool{hasSDonPage}{%
-      \vspace{-20pt}%
-      \hbox to \headwidth{\textcolor{black}{\footnotesize\textit{* Software default value}}\hfil}%
-      \vspace{4pt}%
-    }{%
-      \vspace{-8pt}%
-    }%
-    \color{osdagGreen}\hrule width\headwidth height 1pt \vspace{6pt}%
-  }
-}
-\fancypagestyle{plain}{
-  \fancyhf{}
-  \fancyhead[L]{""" + pn + r""" $|$ """ + jn + r"""}
-  \fancyhead[R]{""" + rd + r""" $|$ """ + rv + r"""}
-  \fancyfoot[L]{Osdag $|$ FOSSEE $|$ Indian Institute of Technology Bombay}
-  \fancyfoot[R]{Page \thepage\ of \pageref{LastPage}}
-  \renewcommand{\headrule}{\color{osdagGreen}\hrule width\headwidth height 1pt \vspace{2pt}}
-  \renewcommand{\footrule}{%
-    \ifbool{hasSDonPage}{%
-      \vspace{-20pt}%
-      \hbox to \headwidth{\textcolor{black}{\footnotesize\textit{* Software default value}}\hfil}%
-      \vspace{4pt}%
-    }{%
-      \vspace{-8pt}%
-    }%
-    \color{osdagGreen}\hrule width\headwidth height 1pt \vspace{6pt}%
-  }
-}
-\fancypagestyle{firstpage}{
-  \fancyhf{}
-  \renewcommand{\headrulewidth}{0pt}
-  \fancyfoot[L]{Osdag $|$ FOSSEE $|$ Indian Institute of Technology Bombay}
-  \fancyfoot[R]{Page \thepage\ of \pageref{LastPage}}
-  \renewcommand{\footrule}{\vspace{-8pt}\color{osdagGreen}\hrule width\headwidth height 1pt \vspace{6pt}}
-}
-\pagestyle{main}
-\setstretch{1.15}
-
-% Custom Commands
-\newcommand{\placeholder}[1]{\textit{\textless #1\textgreater}}
-\newcommand{\todo}[1]{\colorbox{yellow}{TODO: #1}}
-\newcolumntype{L}[1]{>{\raggedright\arraybackslash}p{#1}}
-\newcolumntype{C}[1]{>{\centering\arraybackslash}p{#1}}
-\newcolumntype{R}[1]{>{\raggedleft\arraybackslash}p{#1}}
-
-% Software-default asterisk
-\newcommand{\sdstar}{\textsuperscript{*}}
-\newbool{hasSDonPage}
-\boolfalse{hasSDonPage}
-\newcommand{\markSD}{\global\booltrue{hasSDonPage}}
-\renewcommand{\sdstar}{\textsuperscript{*}\markSD{}}
-\AddToHook{shipout/before}{\global\boolfalse{hasSDonPage}}
-
-\title{\Large\textbf{OsdagBridge} \\ \normalsize Open Source Software for Steel Girder Bridge Design \\ \vspace{2cm} \large Design Report}
-\author{}
-\date{}
-
-\begin{document}
-"""
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -306,6 +181,7 @@ def title_page(m, osdag_logo, org_logo):
 """
 
     return r"""
+\hypersetup{pageanchor=false}
 \begin{titlepage}
 \thispagestyle{firstpage}
 \centering
@@ -336,6 +212,7 @@ def title_page(m, osdag_logo, org_logo):
 \hline
 \end{tabular}
 \end{titlepage}
+\hypersetup{pageanchor=true}
 """
 
 
@@ -454,23 +331,27 @@ class ReportDataBridge:
 
 
 
-    def __init__(self, output_dict: dict, input_dict: dict, payload: "ReportPayload"):
+    def __init__(self, output_dict: dict, input_dict: dict, payload: "ReportPayload", member_family="crossbracing"):
         self.output_dict = output_dict
         self.input_dict = input_dict
         self.payload = payload
+        self.member_family = member_family
 
 
     # =====================================================================
     # CHAPTER 5: CROSS BRACING
     # =====================================================================
 
+    def end_diaphragms(self):
+        return ReportDataBridge(self.output_dict, self.input_dict, self.payload, "end_diaphragm")
+
     def _cb_forces_dict(self) -> dict:
         """Internal: return crossbracing_forces_dict from output_dict."""
-        return self.output_dict.get("crossbracing_forces_dict", {})
+        return self.output_dict.get(self.member_family + "_forces_dict", {})
 
     def _cb_pair_designs(self) -> dict:
         """Internal: return crossbracing_design_results from output_dict."""
-        return self.output_dict.get("crossbracing_design_results", {})
+        return self.output_dict.get(self.member_family + "_design_results", {})
 
     def _cb_osdag(self, pair: str, member: str, force_type: str) -> dict:
         """
@@ -837,9 +718,11 @@ def generate_report(payload, request):
     # type: (ReportPayload, ReportRequest) -> ReportResult
     """Compile the full OsdagBridge Design Report to PDF (+ .tex source)."""
     tex_path = None
+    source_written = False
     try:
         # Use OsdagLatexEnv to discover the bundled pdflatex path
         compiler = 'pdflatex'
+        compiler_env = os.environ.copy()
         try:
             import importlib
             module = importlib.import_module('osdag_latex_env.__main__')
@@ -848,7 +731,7 @@ def generate_report(payload, request):
                 compiler = str(latex_env.pdflatex)
                 # Ensure the bin directory is in PATH so subprocess can find DLLs if needed
                 if latex_env.bin_dir:
-                    os.environ['PATH'] = str(latex_env.bin_dir) + os.pathsep + os.environ.get('PATH', '')
+                    compiler_env['PATH'] = str(latex_env.bin_dir) + os.pathsep + os.environ.get('PATH', '')
         except Exception as e:
             logger.info("osdag_latex_env not found or failed to load. (%s)", e)
             
@@ -864,22 +747,17 @@ def generate_report(payload, request):
         # Write to temp dir first, compile there, then copy back
         with tempfile.TemporaryDirectory() as tmp_dir:
 
-            # ── Write figure bytes into tmp_dir/images/ then free RAM immediately ──
-            tmp_images = os.path.join(tmp_dir, 'images')
-            os.makedirs(tmp_images, exist_ok=True)
+            # An ASCII directory name also supports project names containing LaTeX punctuation.
+            asset_name = "report_assets_" + hashlib.sha256(request.file_stem.encode()).hexdigest()[:16]
+            tmp_assets = os.path.join(tmp_dir, asset_name)
+            os.makedirs(tmp_assets)
             fig_paths = {}
-            for attr, img_bytes in list(payload.figure_data.items()):
-                if img_bytes:
-                    p = os.path.join(tmp_images, attr + '.png')
-                    with open(p, 'wb') as fh:
-                        fh.write(img_bytes)
-                    fig_paths[attr] = p.replace('\\', '/')
-            payload.figure_data.clear()  # bytes no longer needed — free RAM now
-
-            # ── Write title-page logos into tmp_dir/assets (auto-deleted) ──
-            # Nothing is left next to the PDF. Latex paths are relative to tmp_dir.
-            tmp_assets = os.path.join(tmp_dir, 'assets')
-            os.makedirs(tmp_assets, exist_ok=True)
+            for attr, image_bytes in payload.figure_data.items():
+                if image_bytes and attr.isidentifier():
+                    filename = attr + ".png"
+                    with open(os.path.join(tmp_assets, filename), "wb") as image:
+                        image.write(image_bytes)
+                    fig_paths[attr] = asset_name + "/" + filename
 
             osdag_logo_src = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'data', 'ResourceFiles', 'vectors', 'Osdag Logo.png')
             iit_logo_src   = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'assets', 'IIT Bombay Logo.png')
@@ -887,13 +765,13 @@ def generate_report(payload, request):
             osdag_logo_latex = None
             if os.path.exists(osdag_logo_src):
                 shutil.copy2(osdag_logo_src, os.path.join(tmp_assets, 'osdag_logo.png'))
-                osdag_logo_latex = 'assets/osdag_logo.png'
+                osdag_logo_latex = asset_name + '/osdag_logo.png'
 
             org_logo_latex = None
             org_logo_src = payload.metadata.logo_path if (payload.metadata.logo_path and os.path.exists(payload.metadata.logo_path)) else (iit_logo_src if os.path.exists(iit_logo_src) else None)
             if org_logo_src:
                 shutil.copy2(org_logo_src, os.path.join(tmp_assets, 'org_logo.png'))
-                org_logo_latex = 'assets/org_logo.png'
+                org_logo_latex = asset_name + '/org_logo.png'
 
             # Compute and inject quantities for Chapter 7
             quantities = calculate_material_quantities(payload.inputs, payload.output_dict)
@@ -924,15 +802,17 @@ def generate_report(payload, request):
             if 'analysis' in secs:
                 doc_parts.append(ch4_analysis(payload.analysis_summary, fig_paths, bridge, span_m))
             if 'design_checks' in secs:
-                doc_parts.append(ch5_design_checks(payload.design_checks, bridge))
+                ratios = {}
+                doc_parts.append(ch5_design_checks(payload.design_checks, bridge, ratios))
+                if payload.options.include_figures:
+                    doc_parts.extend(utilization_charts(tmp_assets, ratios))
             if 'drawings' in secs and payload.options.include_figures:
                 doc_parts.append(ch6_drawings(fig_paths))
 
             doc_parts.append(ch7_quantities(payload.inputs))
 
-            mode = str(payload.inputs.get(KEY_DESIGN_MODE, "Optimized")).strip().lower()
-            is_custom = mode in {"custom", "customized"}
-        
+            if payload.options.include_figures:
+                doc_parts.extend(material_charts(tmp_assets, quantities))
 
             doc_parts.append(ch8_design_log(payload.log_entries, payload.inputs))
 
@@ -953,43 +833,38 @@ def generate_report(payload, request):
             with open(tmp_tex, 'w', encoding='utf-8') as f:
                 f.write(full_tex)
 
-            # Compile twice for TOC and references
-            for _ in range(2):
+            shutil.copytree(tmp_assets, os.path.join(request.output_dir, asset_name), dirs_exist_ok=True)
+            shutil.copy2(tmp_tex, tex_path)
+            source_written = True
+            # The third pass resolves page references after the contents page expands.
+            for _ in range(3):
                 try:
                     kwargs = {
                         'cwd': tmp_dir,
                         'stdout': subprocess.PIPE,
                         'stderr': subprocess.PIPE,
                         'check': False,
-                        'env': os.environ.copy()
+                        'env': compiler_env
                     }
                     if os.name == 'nt':
                         kwargs['creationflags'] = subprocess.CREATE_NO_WINDOW
                     
                     res = subprocess.run(
-                        [compiler, '-interaction=nonstopmode', request.file_stem + '.tex'],
+                        [compiler, '-halt-on-error', '-interaction=nonstopmode', request.file_stem + '.tex'],
                         **kwargs
                     )
-                except Exception as exc:
-                    logger.warning(f"pdflatex run failed: {exc}")
+                    if res.returncode:
+                        logger.error("LaTeX compilation failed:\n%s", (res.stdout + res.stderr).decode("utf-8", "replace")[-4000:])
+                        return ReportResult(pdf_path=None, tex_path=tex_path)
+                except OSError as exc:
+                    logger.error("Could not start pdflatex: %s", exc)
+                    return ReportResult(pdf_path=None, tex_path=tex_path)
 
-            if os.path.exists(tmp_tex):
-                shutil.copy2(tmp_tex, tex_path)
-            if os.path.exists(tmp_pdf):
-                shutil.copy2(tmp_pdf, pdf_path)
-
-        if os.path.exists(pdf_path):
-            logger.info("Report generated: %s", pdf_path)
+            shutil.copy2(tmp_pdf, pdf_path)
             return ReportResult(pdf_path=pdf_path, tex_path=tex_path)
-
-        logger.error("pdflatex ran but no PDF was produced.")
-        if 'res' in locals():
-            logger.error("pdflatex STDOUT:\n%s", res.stdout.decode('utf-8', 'ignore'))
-            logger.error("pdflatex STDERR:\n%s", res.stderr.decode('utf-8', 'ignore'))
-        return ReportResult(pdf_path=None, tex_path=tex_path)
 
     except Exception as exc:
         logger.error("generate_report failed: %s", exc, exc_info=True)
-        if tex_path and os.path.exists(tex_path):
+        if source_written:
             return ReportResult(pdf_path=None, tex_path=tex_path)
         return ReportResult(pdf_path=None, tex_path=None)

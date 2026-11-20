@@ -5,6 +5,8 @@
 
 from osdagbridge.core.utils.common import (
     KEY_CB_LOAD,
+    KEY_FOOTPATH,
+    KEY_TS_NO_OF_FOOTPATHS,
     KEY_LL_CUSTOM_VEHICLES,
     KEY_LL_FOOTPATH_PRESSURE_MODE,
     KEY_LL_FOOTPATH_PRESSURE_VALUE,
@@ -83,7 +85,10 @@ def ch3_loads(input_dict):
             elif isinstance(c, str):
                 vehicles.append(c)
                 
-    vehicles_str = ", ".join(vehicles) if vehicles else "None"
+    vehicle_rows = "\n".join(
+        "Vehicle class & " + _tex(name) + r" & --- \\ \hline"
+        for name in vehicles or ["None selected"]
+    )
 
     from osdagbridge.core.utils.codes.irc6_2017 import IRC6_2017
     span = input_dict.get(KEY_SPAN)
@@ -124,7 +129,7 @@ def ch3_loads(input_dict):
             lanes_int = int(lanes)
             braking_force_t = IRC6_2017.cl_211_2_braking_force(lanes_int)
             braking_force_kN = braking_force_t * 9.81
-            braking_force_str = f"{braking_force_kN:.2f} kN ({braking_force_t:.2f} tonnes)"
+            braking_force_str = f"{braking_force_kN:.2f}"
         except Exception:
             braking_force_str = "N/A"
     else:
@@ -141,6 +146,10 @@ def ch3_loads(input_dict):
         fp_str = f"{fp_value} kN/m²"
     else:
         fp_str = "N/A"
+
+    if (str(input_dict.get(KEY_FOOTPATH, "")).lower() == "none"
+            or input_dict.get(KEY_TS_NO_OF_FOOTPATHS) in (0, "0")):
+        fp_str = "Not applicable --- no footpath"
 
     # Vz / Pz — prefer stored computed values; fall back to IRC6 Table 12
     vz_val = input_dict.get(KEY_WL_HOURLY_MEAN_WIND)
@@ -273,10 +282,8 @@ This section summarizes all loads applied to the bridge and the load combination
 
 \vspace{1em}
 \begin{longtable}{|L{5.5cm}|p{10.0cm}|}
-\caption{\textbf{Dead Load -- Self Weight}}
-\hline
-\textbf{parameter} & \textbf{value} \\
-\hline
+\caption{\textbf{Dead Load -- Self Weight}}\\
+\reporthead{\textbf{parameter} & \textbf{value}}
 \textnormal{Steel Self-Weight Applied} & """ + (_render_value(input_dict, KEY_MATERIAL_GIRDER_DENSITY, ' kN/m\\textsuperscript{3}')) + r""" \\[6pt]
 \hline
 \textnormal{Concrete Deck Weight} & """ + (_render_value(input_dict, KEY_MATERIAL_DECK_DENSITY, ' kN/m\\textsuperscript{3}')) + r""" \\[6pt]
@@ -287,10 +294,8 @@ This section summarizes all loads applied to the bridge and the load combination
 
 \vspace{1em}
 \begin{longtable}{|L{5.5cm}|p{10.0cm}|}
-\caption{\textbf{Dead Load for Surfacing (DW)}}
-\hline
-\textbf{parameter} & \textbf{value} \\
-\hline
+\caption{\textbf{Dead Load for Surfacing (DW)}}\\
+\reporthead{\textbf{parameter} & \textbf{value}}
 \textnormal{Wearing Course Load} & """ + (_render_value(input_dict, KEY_WC_MATERIAL)) + r""" x """ + (_render_value(input_dict, KEY_WC_THICKNESS)) + r""" \\[6pt]
 \hline
 \textnormal{Additional SIDL (Crash Barrier)} & """ + (_render_value(input_dict, KEY_CB_LOAD)) + r""" kN/m per barrier \\[6pt]
@@ -300,27 +305,25 @@ This section summarizes all loads applied to the bridge and the load combination
 \end{longtable}
 
 \vspace{1em}
-\begin{longtable}{|L{5.5cm}|p{10.0cm}|}
-\caption{\textbf{Live Loads (LL)}}
-\hline
-\textbf{parameter} & \textbf{value} \\
-\hline
-\textnormal{Vehicles Considered} & """ + _tex(vehicles_str) + r""" \\[6pt]
-\hline
-\textnormal{Impact Factor (IRC 6)} & """ + _tex(impact_factor_str) + r""" \\[6pt]
-\hline
-\textnormal{Braking Load (IRC 6)} & """ + _tex(braking_force_str) + r""" \\[6pt]
-\hline
-\textnormal{Footpath Live Load (if applicable)} & """ + (_render_value(input_dict, KEY_LL_FOOTPATH_PRESSURE_VALUE, ' kN/m\\textsuperscript{2}')) + r""" \\[6pt]
-\hline
+\begin{longtable}{|L{5.5cm}|L{7.5cm}|C{2cm}|}
+\caption{\textbf{Vehicle Live Loads}}\\
+\reporthead{\textbf{Parameter} & \textbf{Value} & \textbf{Unit}}
+""" + vehicle_rows + r"""
+Impact factor (IRC 6) & """ + _tex(impact_factor_str) + r""" & --- \\ \hline
+Braking load (IRC 6) & """ + _tex(braking_force_str) + r""" & kN \\ \hline
+Centrifugal load & Not applicable & --- \\ \hline
+\end{longtable}
+
+\begin{longtable}{|L{5.5cm}|L{7.5cm}|C{2cm}|}
+\caption{\textbf{Footpath Live Load}}\\
+\reporthead{\textbf{Parameter} & \textbf{Value} & \textbf{Unit}}
+Footpath pressure & """ + _tex(fp_str) + r""" & kN/m$^2$ \\ \hline
 \end{longtable}
 
 \vspace{1em}
 \begin{longtable}{|L{5.5cm}|p{10.0cm}|}
-\caption{\textbf{Wind Load (WL) --- per IRC 6}}
-\hline
-\textbf{parameter} & \textbf{value} \\
-\hline
+\caption{\textbf{Wind Load (WL) --- per IRC 6}}\\
+\reporthead{\textbf{parameter} & \textbf{value}}
 \textnormal{Basic Wind Speed, Vb} & """ + (_render_value(input_dict,'wind_speed', ' m/s')) + r""" [from Project Location] \\[6pt]
 \hline
 \textnormal{Terrain Type} & """ + (_render_value(input_dict, KEY_WL_TERRAIN_TYPE)) + r""" \\[6pt]
@@ -341,10 +344,8 @@ This section summarizes all loads applied to the bridge and the load combination
 
 \vspace{1em}
 \begin{longtable}{|L{5.5cm}|p{10.0cm}|}
-\caption{\textbf{Earthquake Load (EL) --- per IRC 6}}
-\hline
-\textbf{parameter} & \textbf{value} \\
-\hline
+\caption{\textbf{Earthquake Load (EL) --- per IRC 6}}\\
+\reporthead{\textbf{parameter} & \textbf{value}}
 \textnormal{Seismic Zone} & """ + (_render_value(input_dict,'seismic_zone')) + r""" [from Project Location] \\[6pt]
 \hline
 \textnormal{Zone Factor, Z} & """ + (_render_value(input_dict, KEY_SL_ZONE_FACTOR)) + r""" \\[6pt]
@@ -367,10 +368,8 @@ This section summarizes all loads applied to the bridge and the load combination
 
 \vspace{1em}
 \begin{longtable}{|L{5.5cm}|p{10.0cm}|}
-\caption{\textbf{Temperature Load (TL) --- per IRC 6}}
-\hline
-\textbf{parameter} & \textbf{value} \\
-\hline
+\caption{\textbf{Temperature Load (TL) --- per IRC 6}}\\
+\reporthead{\textbf{parameter} & \textbf{value}}
 \textnormal{Maximum Shade Temperature} & """ + (_render_value(input_dict,'shade_temp_max')) + r""" $^\circ$C \\[6pt]
 \hline
 \textnormal{Minimum Shade Temperature} & """ + (_render_value(input_dict,'shade_temp_min')) + r""" $^\circ$C \\[6pt]
@@ -383,10 +382,8 @@ This section summarizes all loads applied to the bridge and the load combination
 
 \vspace{1em}
 \begin{longtable}{|C{4.0cm}|p{11.5cm}|}
-\caption{\textbf{Load Combinations}}
-\hline
-\textbf{Combination ID} & \textbf{Load Cases} \\[6pt]
-\hline
+\caption{\textbf{Load Combinations}}\\
+\reporthead{\textbf{Combination ID} & \textbf{Load Cases}}
 """ + lc_rows_str + r"""
 \end{longtable}
 
